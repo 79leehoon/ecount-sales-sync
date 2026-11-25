@@ -40,21 +40,39 @@ def fetch_sales_rows(url):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(url, wait_until="networkidle")
+        print("로그인 전 URL:", page.url)
 
-        page.locator('input[type="password"]').fill(os.environ["ECOUNT_PASSWORD"])
-        page.locator('button:has-text("로그인"), input[type="submit"]').first.click()
+        pw_input = page.locator('input[type="password"]').first
+        pw_input.fill(os.environ["ECOUNT_PASSWORD"])
+        login_btn = page.locator('button:has-text("로그인"), input[type="submit"], a:has-text("로그인")')
+        if login_btn.count() > 0:
+            login_btn.first.click()
+        else:
+            pw_input.press("Enter")
+
         page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(6000)
+        print("로그인 후 URL:", page.url)
+        print("프레임 수:", len(page.frames))
 
-        html = page.content()
+        rows = []
+        for idx, frame in enumerate(page.frames):
+            try:
+                html = frame.content()
+                soup = BeautifulSoup(html, "html.parser")
+                tables = soup.find_all("table")
+                print(f"[프레임 {idx}] URL={frame.url[:80]} | 테이블 수={len(tables)}")
+                for tr in soup.select("table tr"):
+                    cols = [td.get_text(strip=True) for td in tr.find_all("td")]
+                    if len(cols) >= 3 and any(cols):
+                        rows.append(cols)
+            except Exception as e:
+                print(f"[프레임 {idx}] 읽기 오류:", e)
+
+        if not rows:
+            print("페이지 텍스트 미리보기:", page.inner_text("body")[:500])
+
         browser.close()
-
-    soup = BeautifulSoup(html, "html.parser")
-    rows = []
-    for tr in soup.select("table tbody tr"):
-        cols = [td.get_text(strip=True) for td in tr.find_all("td")]
-        if any(cols):
-            rows.append(cols)
     return rows
 
 def append_to_sheet(rows):
@@ -72,4 +90,5 @@ if __name__ == "__main__":
     sales_rows = fetch_sales_rows(link)
     print(f"추출된 행 수: {len(sales_rows)}")
     if sales_rows:
+        print("샘플 2행:", sales_rows[:2])
         append_to_sheet(sales_rows)
